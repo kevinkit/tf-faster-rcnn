@@ -29,6 +29,7 @@ import argparse
 
 import re,subprocess
 
+import datetime
 
 from nets.vgg16_depre import vgg16
 
@@ -40,6 +41,13 @@ CLASSES = ('__background__',
            'sheep', 'sofa', 'train', 'tvmonitor')
 
 NETS = {'vgg16': ('vgg16_faster_rcnn_iter_70000.ckpt', 'vgg16.weights')}
+
+def uniquefilename(pre='',suf='.png'):
+ h = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+ z = str(datetime.datetime.now().microsecond)
+ return pre+ h +z+suf;
+
+
 
 def vis_detections(im, class_name, dets, thresh=0.5):
     """Draw detected bounding boxes."""
@@ -122,6 +130,8 @@ def camdemo(sess,net,im,resize=(500,375)):
     # Visualize detections for each class
     CONF_THRESH = 0.8
     NMS_THRESH = 0.3
+    boxess = [];
+    classes = [];
     for cls_ind, cls in enumerate(CLASSES[1:]):
         cls_ind += 1 # because we skipped background
         cls_boxes = boxes[:, 4*cls_ind:4*(cls_ind + 1)]
@@ -132,10 +142,13 @@ def camdemo(sess,net,im,resize=(500,375)):
         dets = dets[keep, :]
 #	print(cls,dets)
 #	Threshing(cls,dets,thresh=CONF_THRESH)
-	Img = vis_detectionOnCam(im, cls, dets, thresh=CONF_THRESH)
+	Img,box,CLASS = vis_detectionOnCam(im, cls, dets, thresh=CONF_THRESH)
+	boxess.append(box),
+	classes.append(CLASS)
 
 
-    return Img
+
+    return Img,boxess,classes
 #    cv2.imshow('frame',im)
 
 
@@ -194,7 +207,7 @@ def parse_args():
 
 
     parser.add_argument('--Save',dest='Safemode',help='Where to save the data to',
-			choices=['json','json2db','raw','onlyimg'],default='json')
+			choices=['json','json2db','raw','onlyimg','print'],default='json')
     args = parser.parse_args()
     if args.Mode == 'cam' and args.camid == None:
         parser.error('Cam Id needs to be provided!')
@@ -335,6 +348,8 @@ if __name__ == '__main__':
 	
           print(available)
 
+
+			
 	#NO MULTITHREADING ! --> THIS MAY CRASH DUE TO LIMITED GPU/CPU MEMORY
 	while(True):
 	   for i in range(0,len(available)):
@@ -346,16 +361,44 @@ if __name__ == '__main__':
 #			Img = camdemo(sess,net,frame)	
 			Img,boxes,classes = camdemo(sess,net,frame);
 			if Img is not None:
+	
 				cv2.imshow('detected ' + str(i),Img);
-#				print(boxes,classes)
+#		                savingfile = open('detected' + str(i),"a");
+#				if classes[i] is not None and boxes[i] is not None:
+#					cv2.imwrite(uniquefilename(pre='Detected' + str(i)),Img) 
+#					for j in range(0,len(classes)):
+#						savingfile.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "\t" + str(classes[i]) + "\t" +  str(boxes[i]) + "\n");
+
+
+#					savingfile.close()
+#					print(boxes,classes)
 			else:
 				cv2.imshow('detected ' + str(i),cv2.resize(frame,(500,375)))
+
+                        savingfile = open('detected' + str(i),"a");
+                        if classes is not None and boxes is not None:
+				savingfile = open('detected' + str(i),"a");
+                                for j in range(0,len(classes)):
+					if classes[j] is not None:
+						for k in range(0,len(classes[j])):
+							print(classes[j][k],boxes[j][k])
+							savingfile.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')	+ "\t" + str(classes[j][k]) + "\t"+  str(boxes[j][k]) + "\n")
+				# 	savingfile.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + "\t" + str(classes[j]) + "\t" +  str(boxes[j]) + "\n");
+                                savingfile.close()
+
 
 
 
     #Compute data that come from any kind of webservice
     else:
      print("opening some port...");
+     #TO DO:
+    
+     
+
+
+	
+
 
 """     
     
