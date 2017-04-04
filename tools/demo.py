@@ -27,6 +27,9 @@ import numpy as np
 import os, cv2
 import argparse
 
+import re,subprocess
+
+
 from nets.vgg16_depre import vgg16
 
 CLASSES = ('__background__',
@@ -73,21 +76,25 @@ def vis_detections(im, class_name, dets, thresh=0.5):
 def vis_detectionOnCam(im, class_name,dets,thresh=0.5):
     """Draw detected bounding boxes."""
     inds = np.where(dets[:, -1] >= thresh)[0]
+
+    threshed_boxes = [];
+    threshed_classes = [];
     if len(inds) == 0:
-        return
+        return None,None,None
     for i in inds:
         bbox = dets[i, :4]
         score = dets[i, -1]
-#        print(bbox)
-#        print(score)
-#	print(class_name)
         rgb = colors[i];
         rgb = colors[CLASSES.index(class_name)]
-	print(rgb,rgb[0],rgb[1],rgb[2])
+#	print(rgb,rgb[0],rgb[1],rgb[2])
 	cv2.rectangle(im, (bbox[0],bbox[1]),(bbox[2],bbox[3]),(rgb[0],rgb[1],rgb[2]),2)
 #	cv2.rectangle(im, (bbox[0],bbox[1]),(bbox[2],bbox[3]),(255,255,255),2)	
         cv2.putText(im,class_name,(bbox[0],bbox[1]),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,255),2,255)
-    return im
+	threshed_boxes.append(bbox);
+	threshed_classes.append(class_name);
+
+#    return im	
+    return im,threshed_boxes,threshed_classes
 
 
 #Will return the indices to be used
@@ -109,7 +116,7 @@ def camdemo(sess,net,im,resize=(500,375)):
     timer.tic()
     scores, boxes = im_detect(sess, net, im)
     timer.toc()
-    print('Detection took {:.3f}s for {:d} object proposals'.format(timer.total_time, boxes.shape[0]))
+#    print('Detection took {:.3f}s for {:d} object proposals'.format(timer.total_time, boxes.shape[0]))
 
 #    return scores,boxes
     # Visualize detections for each class
@@ -179,12 +186,22 @@ def parse_args():
     parser.add_argument('--net', dest='demo_net', help='Network to use [vgg16]',
                         choices=NETS.keys(), default='vgg16')
 
+    parser.add_argument('--Mode',dest='Mode',help='Tells the mode the software is started', 
+			choices=['drive','cam','cams','WebSocket'],default='drive')
+    parser.add_argument('--camid',dest='camid',help='Camera ID, usually starts at 0', type=int,default=0)
+    parser.add_argument('--maxcams',dest='maxcams',help='Maximum amount of cameras opened at the same time',
+			type=int,default=2);
 
+
+    parser.add_argument('--Save',dest='Safemode',help='Where to save the data to',
+			choices=['json','json2db','raw','onlyimg'],default='json')
     args = parser.parse_args()
+    if args.Mode == 'cam' and args.camid == None:
+        parser.error('Cam Id needs to be provided!')
+
+
 
     return args
-
-
 
 
 def getColors(Classes):
@@ -204,22 +221,49 @@ def getColors(Classes):
  return cols 
 
 
+def getUSBports():
+ device_re = re.compile("Bus\s+(?P<bus>\d+)\s+Device\s+(?P<device>\d+).+ID\s(?P<id>\w+:\w+)\s(?P<tag>.+)$", re.I)
+ df = subprocess.check_output("lsusb")
+ devices = []
+ cnt = 0;
+ for i in df.split('\n'):
+    if i:
+        info = device_re.match(i)
+        if info:
+            dinfo = info.groupdict()
+            dinfo['device'] = '/dev/bus/usb/%s/%s' % (dinfo.pop('bus'), dinfo.pop('device'))
+            devices.append(dinfo)
+	    cnt = cnt +1;
 
-
-
-
-
-
+ return devices, cnt
 
 if __name__ == '__main__':
+
+    usb_ports,am = getUSBports();
+    print(usb_ports,am)
+
 
     global colors
     colors = getColors(len(CLASSES[1:]))
     cfg.TEST.HAS_RPN = True  # Use RPN for proposals
     args = parse_args()
 
+
     # model path
     demonet = args.demo_net
+    mode = args.Mode
+    maxcams = args.maxcams
+
+    if args.Mode == 'cam':
+	camid = args.camid;
+
+    print(demonet)
+    print(mode)
+    print(NETS.keys())
+
+   
+
+
     tfmodel = os.path.join(cfg.DATA_DIR, 'faster_rcnn_models', 'voc_2007_trainval', 'default',
                               NETS[demonet][0])
     if not os.path.isfile(tfmodel + '.meta'):
@@ -251,9 +295,69 @@ if __name__ == '__main__':
 
     print('Loaded network {:s}'.format(tfmodel))
 
-    im_names = ['000456.jpg', '000542.jpg', '001150.jpg',
+    #load some sample images from the drive
+    #TO-DO: make this available via command
+    if mode == 'drive':
+    	im_names = ['000456.jpg', '000542.jpg', '001150.jpg',
                 '001763.jpg', '004545.jpg']
+     
+    #Compute data from one cam
+    elif mode == 'cam':
+	cap = cv2.VideoCapture(camid);    
 
+	cv2.namedWindow('Captured');
+        cv2.namedWindow('detected');
+        while(True):
+          ret,frame = cap.read();
+	  if ret:
+            cv2.imshow('Captured',frame);
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+            
+            Img,boxes,classes = camdemo(sess,net,frame);
+	    if Img is not None:
+		cv2.imshow('detected',Img);
+	    else:
+		cv2.imshow('detected',cv2.resize(frame,(500,375)))
+
+    #Compute data from cams 
+    #TO-DO: some kind of test how many cams are available
+    elif mode == 'cams':
+    #Stupid loop for available cams:
+        available = [];
+        for i in range(0,maxcams):	
+	  tempcap = cv2.VideoCapture(i);
+          temret,tempframe = tempcap.read();
+	  if temret:
+	     available.append(tempcap);
+	     cv2.namedWindow('Captured ' + str(i))
+	   
+	
+          print(available)
+
+	#NO MULTITHREADING ! --> THIS MAY CRASH DUE TO LIMITED GPU/CPU MEMORY
+	while(True):
+	   for i in range(0,len(available)):
+		ret,frame = available[i].read();
+		if ret:
+			cv2.imshow('Captured ' + str(i),frame);
+                	if cv2.waitKey(1) & 0xFF == ord('q'):
+                		break
+#			Img = camdemo(sess,net,frame)	
+			Img,boxes,classes = camdemo(sess,net,frame);
+			if Img is not None:
+				cv2.imshow('detected ' + str(i),Img);
+#				print(boxes,classes)
+			else:
+				cv2.imshow('detected ' + str(i),cv2.resize(frame,(500,375)))
+
+
+
+    #Compute data that come from any kind of webservice
+    else:
+     print("opening some port...");
+
+"""     
     
     #Crate Capture Object
     cap0 = cv2.VideoCapture(0);
@@ -279,6 +383,7 @@ if __name__ == '__main__':
      else:
 	print("Could not recieve data from camera 0")
 
+
      if ret1:
 	cv2.imshow('captured 1',frame1);
 	if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -294,8 +399,7 @@ if __name__ == '__main__':
 
      if ret0 and ret1:
 	print("both cameras working, trying some matching...")
-
-
+"""
 #    for im_name in im_names:
 #        print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
 #        print('Demo for data/demo/{}'.format(im_name))
