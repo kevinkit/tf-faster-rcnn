@@ -96,6 +96,19 @@ def vis_detectionOnCam(im, class_name,dets,thresh=0.5):
         rgb = colors[CLASSES.index(class_name)]
 #	print(rgb,rgb[0],rgb[1],rgb[2])
 	cv2.rectangle(im, (bbox[0],bbox[1]),(bbox[2],bbox[3]),(rgb[0],rgb[1],rgb[2]),2)
+
+	difx = 0.5*(bbox[3] - bbox[1])
+	dify = 0.5*(bbox[2] - bbox[0])
+	y = int(bbox[1] + difx);
+	x = int(bbox[0] + dify);
+
+
+#	y = int(0.5*(bbox[3] + bbox[1]))
+#	x = int(0.5*(bbox[2] + bbox[0]))
+
+	cv2.putText(im,"X",(x,y),cv2.FONT_HERSHEY_SIMPLEX,1,(rgb[0],rgb[1],rgb[2]),2,255) 
+
+
 #	cv2.rectangle(im, (bbox[0],bbox[1]),(bbox[2],bbox[3]),(255,255,255),2)	
         cv2.putText(im,class_name,(bbox[0],bbox[1]),cv2.FONT_HERSHEY_SIMPLEX,1,(255,255,255),2,255)
 	threshed_boxes.append(bbox);
@@ -338,20 +351,23 @@ if __name__ == '__main__':
     elif mode == 'cams':
     #Stupid loop for available cams:
         available = [];
+        oldpic = [];
+	f = [];
         for i in range(0,maxcams):	
 	  tempcap = cv2.VideoCapture(i);
           temret,tempframe = tempcap.read();
 	  if temret:
 	     available.append(tempcap);
 	     cv2.namedWindow('Captured ' + str(i))
-	   
-	
+	     oldpic.append(tempframe);
+	     f.append(0)
           print(available)
 
 
-			
 	#NO MULTITHREADING ! --> THIS MAY CRASH DUE TO LIMITED GPU/CPU MEMORY
 	while(True):
+	   oldimgs = [];
+	   camidx = [];
 	   for i in range(0,len(available)):
 		ret,frame = available[i].read();
 		if ret:
@@ -361,7 +377,10 @@ if __name__ == '__main__':
 #			Img = camdemo(sess,net,frame)	
 			Img,boxes,classes = camdemo(sess,net,frame);
 			if Img is not None:
-	
+				f[i] = 0;
+				
+				oldpic[i] = Img;
+				camidx.append(available[i])			
 				cv2.imshow('detected ' + str(i),Img);
 #		                savingfile = open('detected' + str(i),"a");
 #				if classes[i] is not None and boxes[i] is not None:
@@ -373,7 +392,14 @@ if __name__ == '__main__':
 #					savingfile.close()
 #					print(boxes,classes)
 			else:
-				cv2.imshow('detected ' + str(i),cv2.resize(frame,(500,375)))
+				if f[i] == 5:			
+					cv2.imshow('detected ' + str(i),cv2.resize(frame,(500,375)))
+					print("showing original, since nothing seems to be there to compute");
+				else:
+					cv2.imshow('detected ' + str(i),oldpic[i])
+					print(f)
+					f[i] = f[i] + 1;
+
 
                         savingfile = open('detected' + str(i),"a");
                         if classes is not None and boxes is not None:
